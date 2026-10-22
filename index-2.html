@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIDEO STAR</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f3f3f3;color:#222}
+header{background:#e60023;color:#fff;padding:18px;font-size:25px;font-weight:bold}
+nav{display:flex;justify-content:space-around;gap:8px;background:#fff;padding:12px;position:sticky;top:0}
+button{padding:12px;border:0;border-radius:8px;background:#e60023;color:#fff;font-size:15px;cursor:pointer}
+button:disabled{opacity:.6}
+.upload{background:#fff;padding:15px;margin:12px;border-radius:12px}
+input{width:100%;padding:12px;margin:8px 0;border:1px solid #ccc;border-radius:8px;font-size:16px}
+h3{margin:14px}
+#videos{padding:12px}
+.card{background:#fff;border-radius:12px;margin-bottom:18px;overflow:hidden;box-shadow:0 2px 8px #ddd}
+video{width:100%;max-height:350px;background:#000;display:block}
+.info{padding:12px}
+.status{padding:12px;overflow-wrap:anywhere}
+.small{font-size:13px;color:#555}
+</style>
+</head>
+<body>
+<header>⭐ VIDEO STAR</header>
+<nav>
+<button onclick="window.scrollTo({top:0,behavior:'smooth'})">🏠 Home</button>
+<button onclick="document.getElementById('search').focus()">🔍 Search</button>
+<button onclick="document.getElementById('file').click()">📤 Upload</button>
+</nav>
+
+<div class="upload">
+<h3>📤 अपना वीडियो अपलोड करें</h3>
+<input id="title" type="text" maxlength="100" placeholder="वीडियो का नाम लिखें">
+<input id="file" type="file" accept="video/*">
+<button id="uploadBtn" onclick="uploadVideo()">⬆️ वीडियो अपलोड करें</button>
+<p>वीडियो अपलोड पूरा होने तक पेज बंद न करें।</p>
+<p>अभी अधिकतम 50 MB की वीडियो फ़ाइल चुनें।</p>
+<p class="small">नोट: वीडियो Supabase के videos bucket में सेव होंगे।</p>
+</div>
+
+<div style="padding:12px">
+<input id="search" type="search" placeholder="🔍 वीडियो खोजें..." oninput="searchVideos()">
+</div>
+<h3>🎬 सभी वीडियो</h3>
+<div id="status" class="status">वेबसाइट शुरू हो रही है...</div>
+<div id="videos"></div>
+
+<script>
+const SUPABASE_URL = 'https://xoxcuaihhswydylqftmi.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_JytdWFX_o6LWYzrkUXt57g_LVjxg_To';
+const BUCKET = 'videos';
+let db = null;
+let allVideos = [];
+
+function showStatus(message) {
+  document.getElementById('status').textContent = message;
+}
+
+function cleanTitle(value) {
+  return value.replace(/[\/\\:*?"<>|#%{}[\]^`]/g, '').trim().slice(0, 80);
+}
+
+async function initializeApp() {
+  if (!window.supabase) {
+    showStatus('Supabase की लाइब्रेरी लोड नहीं हुई। इंटरनेट चालू करके पेज Refresh करें।');
+    return;
+  }
+  try {
+    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    await loadVideos();
+  } catch (error) {
+    console.error(error);
+    showStatus('वेबसाइट शुरू नहीं हुई: ' + error.message);
+  }
+}
+
+async function uploadVideo() {
+  if (!db) {
+    alert('वेबसाइट अभी शुरू नहीं हुई। इंटरनेट जाँचें और पेज Refresh करें।');
+    return;
+  }
+  const fileInput = document.getElementById('file');
+  const titleInput = document.getElementById('title');
+  const btn = document.getElementById('uploadBtn');
+  const file = fileInput.files[0];
+
+  if (!file) { alert('पहले वीडियो चुनें।'); return; }
+  if (file.size > 50 * 1024 * 1024) {
+    alert('वीडियो 50 MB से छोटा होना चाहिए।'); return;
+  }
+
+  const title = cleanTitle(titleInput.value) || file.name.replace(/\.[^.]+$/, '');
+  const ext = file.name.includes('.') ? file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g, '') : 'mp4';
+  const path = Date.now() + '-' + title.replace(/\s+/g, '-') + '.' + (ext || 'mp4');
+
+  btn.disabled = true;
+  showStatus('वीडियो अपलोड हो रहा है... कृपया इंतज़ार करें।');
+  try {
+    const { error } = await db.storage.from(BUCKET).upload(path, file, {
+      contentType: file.type || 'video/mp4',
+      upsert: false
+    });
+    if (error) throw error;
+    titleInput.value = '';
+    fileInput.value = '';
+    showStatus('वीडियो सफलतापूर्वक अपलोड हो गया!');
+    await loadVideos();
+  } catch (error) {
+    console.error('Upload error:', error);
+    showStatus('अपलोड नहीं हुआ: ' + error.message);
+    alert('अपलोड में समस्या: ' + error.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadVideos() {
+  if (!db) return;
+  const container = document.getElementById('videos');
+  container.replaceChildren();
+  showStatus('वीडियो लोड हो रहे हैं...');
+  try {
+    const { data, error } = await db.storage.from(BUCKET).list('', {
+      limit: 100,
+      sortBy: { column: 'created_at', order: 'desc' }
+    });
+    if (error) throw error;
+
+    const files = (data || []).filter(item => item.name && item.name !== '.emptyFolderPlaceholder');
+    allVideos = [];
+    for (const item of files) {
+      const { data: signed, error: urlError } = await db.storage.from(BUCKET).createSignedUrl(item.name, 3600);
+      if (urlError) {
+        console.error('Video URL error:', urlError.message);
+        continue;
+      }
+      let title = item.name.replace(/^\d+-/, '').replace(/\.[^.]+$/, '').replace(/-/g, ' ');
+      allVideos.push({ name: item.name, title, url: signed.signedUrl });
+    }
+    if (allVideos.length === 0) {
+      showStatus(files.length ? 'वीडियो के लिंक नहीं बन पाए। Supabase की SELECT Policy जाँचें।' : 'अभी कोई वीडियो अपलोड नहीं हुआ है।');
+      return;
+    }
+    searchVideos();
+    showStatus('कुल वीडियो: ' + allVideos.length);
+  } catch (error) {
+    console.error('Load error:', error);
+    showStatus('वीडियो लोड नहीं हुए: ' + error.message);
+  }
+}
+
+function searchVideos() {
+  const query = document.getElementById('search').value.toLowerCase().trim();
+  const container = document.getElementById('videos');
+  container.replaceChildren();
+  const filtered = allVideos.filter(video => video.title.toLowerCase().includes(query));
+  if (filtered.length === 0) {
+    if (allVideos.length > 0) showStatus('आपकी खोज से कोई वीडियो नहीं मिला।');
+    return;
+  }
+  for (const item of filtered) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const player = document.createElement('video');
+    player.controls = true;
+    player.preload = 'metadata';
+    player.src = item.url;
+    const info = document.createElement('div');
+    info.className = 'info';
+    const title = document.createElement('b');
+    title.textContent = item.title;
+    info.appendChild(title);
+    card.appendChild(player);
+    card.appendChild(info);
+    container.appendChild(card);
+  }
+}
+
+window.addEventListener('load', initializeApp);
+</script>
+</body>
+</html>
