@@ -8,178 +8,359 @@
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,sans-serif;background:#f3f3f3;color:#222}
-header{background:#e60023;color:#fff;padding:18px;font-size:25px;font-weight:bold}
-nav{display:flex;justify-content:space-around;gap:8px;background:#fff;padding:12px;position:sticky;top:0}
-button{padding:12px;border:0;border-radius:8px;background:#e60023;color:#fff;font-size:15px;cursor:pointer}
-button:disabled{opacity:.6}
-.upload{background:#fff;padding:15px;margin:12px;border-radius:12px}
-input{width:100%;padding:12px;margin:8px 0;border:1px solid #ccc;border-radius:8px;font-size:16px}
-h3{margin:14px}
-#videos{padding:12px}
-.card{background:#fff;border-radius:12px;margin-bottom:18px;overflow:hidden;box-shadow:0 2px 8px #ddd}
-video{width:100%;max-height:350px;background:#000;display:block}
+header{background:#e60023;color:white;padding:17px;font-size:24px;font-weight:bold}
+nav{display:flex;justify-content:space-around;gap:6px;background:white;padding:10px;position:sticky;top:0}
+button{padding:11px;border:0;border-radius:8px;background:#e60023;color:white;font-size:14px;cursor:pointer}
+input,textarea{width:100%;padding:12px;margin:7px 0;border:1px solid #ccc;border-radius:8px;font-size:16px}
+.panel{background:white;padding:14px;margin:12px;border-radius:12px}
+.card{background:white;border-radius:12px;margin:12px 0;overflow:hidden;box-shadow:0 2px 8px #ddd}
+video{width:100%;max-height:350px;background:black}
 .info{padding:12px}
-.status{padding:12px;overflow-wrap:anywhere}
 .small{font-size:13px;color:#555}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1}
+.thumb{width:100%;max-height:220px;object-fit:cover}
+#status{padding:12px;overflow-wrap:anywhere}
+.comment{padding:8px 0;border-top:1px solid #ddd;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
 <header>⭐ VIDEO STAR</header>
+
 <nav>
-<button onclick="window.scrollTo({top:0,behavior:'smooth'})">🏠 Home</button>
+<button onclick="scrollTo(0,0)">🏠 Home</button>
 <button onclick="document.getElementById('search').focus()">🔍 Search</button>
 <button onclick="document.getElementById('file').click()">📤 Upload</button>
+<button onclick="logout()">Logout</button>
 </nav>
 
-<div class="upload">
-<h3>📤 अपना वीडियो अपलोड करें</h3>
-<input id="title" type="text" maxlength="100" placeholder="वीडियो का नाम लिखें">
-<input id="file" type="file" accept="video/*">
-<button id="uploadBtn" onclick="uploadVideo()">⬆️ वीडियो अपलोड करें</button>
-<p>वीडियो अपलोड पूरा होने तक पेज बंद न करें।</p>
-<p>अभी अधिकतम 50 MB की वीडियो फ़ाइल चुनें।</p>
-<p class="small">नोट: वीडियो Supabase के videos bucket में सेव होंगे।</p>
+<section class="panel">
+<h3>🔐 Signup / Login</h3>
+<div id="authState">लोड हो रहा है...</div>
+<div id="authForm">
+<input id="username" placeholder="Username (Signup के लिए)">
+<input id="email" type="email" placeholder="Email">
+<input id="password" type="password" placeholder="Password (कम से कम 6 अक्षर)">
+<div class="row">
+<button onclick="signup()">Signup</button>
+<button onclick="login()">Login</button>
 </div>
+</div>
+</section>
 
-<div style="padding:12px">
-<input id="search" type="search" placeholder="🔍 वीडियो खोजें..." oninput="searchVideos()">
-</div>
-<h3>🎬 सभी वीडियो</h3>
-<div id="status" class="status">वेबसाइट शुरू हो रही है...</div>
+<section class="panel">
+<h3>📤 वीडियो अपलोड करें</h3>
+<input id="title" maxlength="100" placeholder="वीडियो का नाम">
+<input id="file" type="file" accept="video/*">
+<input id="thumbnail" type="file" accept="image/*">
+<button id="uploadBtn" onclick="uploadVideo()">⬆️ Upload Video</button>
+<p class="small">अधिकतम वीडियो आकार: 50 MB। Upload के लिए Login जरूरी है।</p>
+</section>
+
+<section class="panel">
+<h3>👤 आपका चैनल</h3>
+<div id="channel">Login करने पर चैनल दिखाई देगा।</div>
+</section>
+
+<section class="panel">
+<input id="search" placeholder="🔍 वीडियो खोजें..." oninput="renderVideos()">
+</section>
+
+<h3 style="padding:0 12px">🎬 सभी वीडियो</h3>
+<div id="status">वेबसाइट शुरू हो रही है...</div>
 <div id="videos"></div>
 
 <script>
-const SUPABASE_URL = 'https://xoxcuaihhswydylqftmi.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_JytdWFX_o6LWYzrkUXt57g_LVjxg_To';
-const BUCKET = 'videos';
-let db = null;
-let allVideos = [];
+const SUPABASE_URL='https://xoxcuaihhswydylqftmi.supabase.co';
+const SUPABASE_KEY='sb_publishable_JytdWFX_o6LWYzrkUXt57g_LVjxg_To';
+const BUCKET='videos';
 
-function showStatus(message) {
-  document.getElementById('status').textContent = message;
+let db=null;
+let user=null;
+let videos=[];
+
+const $=id=>document.getElementById(id);
+const status=msg=>$('status').textContent=msg;
+
+function cleanTitle(s){
+ return s.replace(/[\/\\:*?"<>|#%{}[\]^`]/g,'').trim().slice(0,100);
+}
+function safeName(s){
+ return s.toLowerCase().replace(/[^a-z0-9._-]+/g,'-').slice(0,60)||'video';
+}
+function updateAuth(){
+ $('authState').textContent=user?'Login: '+user.email:'आप Login नहीं हैं।';
+ $('authForm').style.display=user?'none':'block';
+ $('channel').textContent=user?'आपका Channel ID: '+user.id:'Login करने पर चैनल दिखाई देगा।';
 }
 
-function cleanTitle(value) {
-  return value.replace(/[\/\\:*?"<>|#%{}[\]^`]/g, '').trim().slice(0, 80);
+async function signup(){
+ const email=$('email').value.trim();
+ const password=$('password').value;
+ const username=$('username').value.trim();
+ if(!email||password.length<6)return alert('सही Email और कम से कम 6 अक्षर का Password भरें।');
+ const {data,error}=await db.auth.signUp({
+  email,password,options:{data:{username:username||'user'}}
+ });
+ if(error)return alert('Signup समस्या: '+error.message);
+ if(data.session){
+  user=data.user;updateAuth();alert('Signup सफल!');
+ }else{
+  alert('Signup अनुरोध सफल। Email confirmation चालू है तो ईमेल में आया लिंक खोलें।');
+ }
 }
 
-async function initializeApp() {
-  if (!window.supabase) {
-    showStatus('Supabase की लाइब्रेरी लोड नहीं हुई। इंटरनेट चालू करके पेज Refresh करें।');
-    return;
-  }
-  try {
-    db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    await loadVideos();
-  } catch (error) {
-    console.error(error);
-    showStatus('वेबसाइट शुरू नहीं हुई: ' + error.message);
-  }
+async function login(){
+ const email=$('email').value.trim();
+ const password=$('password').value;
+ const {data,error}=await db.auth.signInWithPassword({email,password});
+ if(error)return alert('Login समस्या: '+error.message);
+ user=data.user;updateAuth();await loadVideos();
+ alert('Login सफल!');
 }
 
-async function uploadVideo() {
-  if (!db) {
-    alert('वेबसाइट अभी शुरू नहीं हुई। इंटरनेट जाँचें और पेज Refresh करें।');
-    return;
+async function logout(){
+ if(!db)return;
+ const {error}=await db.auth.signOut();
+ if(error)return alert(error.message);
+ user=null;updateAuth();await loadVideos();
+}
+
+async function uploadVideo(){
+ if(!user)return alert('पहले Login करें।');
+ const file=$('file').files[0];
+ const thumb=$('thumbnail').files[0];
+ if(!file)return alert('पहले वीडियो चुनें।');
+ if(file.size>50*1024*1024)return alert('वीडियो 50 MB से छोटा रखें।');
+ if(thumb&&thumb.size>5*1024*1024)return alert('Thumbnail 5 MB से छोटा रखें।');
+
+ const title=cleanTitle($('title').value)||file.name.replace(/\.[^.]+$/,'');
+ const ext=file.name.includes('.')?file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,''):'mp4';
+ const base=user.id+'/'+Date.now()+'-'+safeName(title);
+ const path=base+'.'+(ext||'mp4');
+ let thumbPath=null;
+ $('uploadBtn').disabled=true;
+ status('वीडियो अपलोड हो रहा है...');
+
+ try{
+  let r=await db.storage.from(BUCKET).upload(path,file,{
+   contentType:file.type||'video/mp4',upsert:false
+  });
+  if(r.error)throw r.error;
+
+  if(thumb){
+   const te=thumb.name.includes('.')?thumb.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,''):'jpg';
+   thumbPath=base+'-thumb.'+(te||'jpg');
+   r=await db.storage.from(BUCKET).upload(thumbPath,thumb,{
+    contentType:thumb.type||'image/jpeg',upsert:false
+   });
+   if(r.error)throw r.error;
   }
-  const fileInput = document.getElementById('file');
-  const titleInput = document.getElementById('title');
-  const btn = document.getElementById('uploadBtn');
-  const file = fileInput.files[0];
 
-  if (!file) { alert('पहले वीडियो चुनें।'); return; }
-  if (file.size > 50 * 1024 * 1024) {
-    alert('वीडियो 50 MB से छोटा होना चाहिए।'); return;
+  const {error}=await db.from('videos').insert({
+   user_id:user.id,title,storage_path:path,thumbnail_path:thumbPath
+  });
+  if(error)throw error;
+
+  $('title').value='';$('file').value='';$('thumbnail').value='';
+  status('वीडियो सफलतापूर्वक अपलोड हुआ!');
+  await loadVideos();
+ }catch(e){
+  console.error(e);
+  status('Upload समस्या: '+e.message);
+  alert('Upload नहीं हुआ: '+e.message+'। Supabase Storage Policies जाँचें।');
+ }finally{
+  $('uploadBtn').disabled=false;
+ }
+}
+
+async function signedUrl(path){
+ const {data,error}=await db.storage.from(BUCKET).createSignedUrl(path,3600);
+ if(error){console.warn(error.message);return null}
+ return data.signedUrl;
+}
+
+async function loadVideos(){
+ if(!db)return;
+ status('वीडियो लोड हो रहे हैं...');
+ try{
+  const {data,error}=await db.from('videos').select('*').order('created_at',{ascending:false}).limit(100);
+  if(error)throw error;
+
+  videos=[];
+  for(const v of data||[]){
+   const url=await signedUrl(v.storage_path);
+   if(!url)continue;
+   const thumbUrl=v.thumbnail_path?await signedUrl(v.thumbnail_path):null;
+   videos.push({...v,url,thumbUrl});
   }
 
-  const title = cleanTitle(titleInput.value) || file.name.replace(/\.[^.]+$/, '');
-  const ext = file.name.includes('.') ? file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g, '') : 'mp4';
-  const path = Date.now() + '-' + title.replace(/\s+/g, '-') + '.' + (ext || 'mp4');
-
-  btn.disabled = true;
-  showStatus('वीडियो अपलोड हो रहा है... कृपया इंतज़ार करें।');
-  try {
-    const { error } = await db.storage.from(BUCKET).upload(path, file, {
-      contentType: file.type || 'video/mp4',
-      upsert: false
+  // पुराने root-folder वीडियो भी दिखाने की कोशिश करें।
+  const {data:oldFiles,error:oldError}=await db.storage.from(BUCKET).list('',{
+   limit:100,sortBy:{column:'created_at',order:'desc'}
+  });
+  if(!oldError){
+   for(const f of oldFiles||[]){
+    if(!f.name||f.name.startsWith('.')||!f.id)continue;
+    if(videos.some(v=>v.storage_path===f.name))continue;
+    const url=await signedUrl(f.name);
+    if(!url)continue;
+    videos.push({
+     id:null,storage_path:f.name,title:f.name.replace(/^\d+-/,'').replace(/\.[^.]+$/,'').replace(/-/g,' '),
+     url,thumbUrl:null,user_id:null,legacy:true
     });
-    if (error) throw error;
-    titleInput.value = '';
-    fileInput.value = '';
-    showStatus('वीडियो सफलतापूर्वक अपलोड हो गया!');
-    await loadVideos();
-  } catch (error) {
-    console.error('Upload error:', error);
-    showStatus('अपलोड नहीं हुआ: ' + error.message);
-    alert('अपलोड में समस्या: ' + error.message);
-  } finally {
-    btn.disabled = false;
+   }
   }
+  renderVideos();
+  status('कुल वीडियो: '+videos.length);
+ }catch(e){
+  console.error(e);
+  status('वीडियो लोड नहीं हुए: '+e.message);
+ }
 }
 
-async function loadVideos() {
-  if (!db) return;
-  const container = document.getElementById('videos');
-  container.replaceChildren();
-  showStatus('वीडियो लोड हो रहे हैं...');
-  try {
-    const { data, error } = await db.storage.from(BUCKET).list('', {
-      limit: 100,
-      sortBy: { column: 'created_at', order: 'desc' }
-    });
-    if (error) throw error;
+async function renderVideos(){
+ const box=$('videos');
+ box.replaceChildren();
+ const q=$('search').value.toLowerCase().trim();
+ const list=videos.filter(v=>(v.title||'').toLowerCase().includes(q));
 
-    const files = (data || []).filter(item => item.name && item.name !== '.emptyFolderPlaceholder');
-    allVideos = [];
-    for (const item of files) {
-      const { data: signed, error: urlError } = await db.storage.from(BUCKET).createSignedUrl(item.name, 3600);
-      if (urlError) {
-        console.error('Video URL error:', urlError.message);
-        continue;
-      }
-      let title = item.name.replace(/^\d+-/, '').replace(/\.[^.]+$/, '').replace(/-/g, ' ');
-      allVideos.push({ name: item.name, title, url: signed.signedUrl });
-    }
-    if (allVideos.length === 0) {
-      showStatus(files.length ? 'वीडियो के लिंक नहीं बन पाए। Supabase की SELECT Policy जाँचें।' : 'अभी कोई वीडियो अपलोड नहीं हुआ है।');
-      return;
-    }
-    searchVideos();
-    showStatus('कुल वीडियो: ' + allVideos.length);
-  } catch (error) {
-    console.error('Load error:', error);
-    showStatus('वीडियो लोड नहीं हुए: ' + error.message);
+ if(!list.length){
+  box.textContent='अभी कोई वीडियो नहीं मिला।';
+  return;
+ }
+
+ for(const v of list){
+  const card=document.createElement('article');card.className='card';
+  if(v.thumbUrl){
+   const img=document.createElement('img');img.className='thumb';
+   img.src=v.thumbUrl;img.alt='Thumbnail';card.appendChild(img);
   }
+
+  const player=document.createElement('video');
+  player.controls=true;player.preload='metadata';player.src=v.url;
+
+  const info=document.createElement('div');info.className='info';
+  const title=document.createElement('b');title.textContent=v.title;
+  info.appendChild(title);
+
+  const who=document.createElement('p');who.className='small';
+  who.textContent=v.user_id?'Channel ID: '+v.user_id:'पुराना वीडियो';
+  info.appendChild(who);
+
+  const actions=document.createElement('div');actions.className='row';
+
+  if(!v.legacy){
+   const like=document.createElement('button');like.textContent='❤️ Like';
+   like.onclick=()=>toggleLike(v);
+   const count=document.createElement('span');count.textContent='Likes: ...';
+   actions.append(like,count);info.appendChild(actions);
+   updateLikeCount(v,count);
+  }else{
+   const old=document.createElement('span');old.textContent='पुराना वीडियो';actions.appendChild(old);info.appendChild(actions);
+  }
+
+  if(user&&!v.legacy&&v.user_id===user.id){
+   const del=document.createElement('button');del.textContent='🗑️ Delete';
+   del.onclick=()=>deleteVideo(v);actions.appendChild(del);
+  }
+
+  const textarea=document.createElement('textarea');
+  textarea.maxLength=1000;textarea.placeholder='Comment लिखें...';
+  const send=document.createElement('button');send.textContent='💬 Comment भेजें';
+  const comments=document.createElement('div');comments.className='small';
+  send.onclick=()=>addComment(v,textarea,comments);
+  info.append(textarea,send,comments);
+
+  card.append(player,info);box.appendChild(card);
+  loadComments(v,comments);
+ }
 }
 
-function searchVideos() {
-  const query = document.getElementById('search').value.toLowerCase().trim();
-  const container = document.getElementById('videos');
-  container.replaceChildren();
-  const filtered = allVideos.filter(video => video.title.toLowerCase().includes(query));
-  if (filtered.length === 0) {
-    if (allVideos.length > 0) showStatus('आपकी खोज से कोई वीडियो नहीं मिला।');
-    return;
-  }
-  for (const item of filtered) {
-    const card = document.createElement('div');
-    card.className = 'card';
-    const player = document.createElement('video');
-    player.controls = true;
-    player.preload = 'metadata';
-    player.src = item.url;
-    const info = document.createElement('div');
-    info.className = 'info';
-    const title = document.createElement('b');
-    title.textContent = item.title;
-    info.appendChild(title);
-    card.appendChild(player);
-    card.appendChild(info);
-    container.appendChild(card);
-  }
+async function updateLikeCount(v,target){
+ const {count,error}=await db.from('likes').select('id',{count:'exact',head:true}).eq('video_id',v.id);
+ if(!error)target.textContent='❤️ Likes: '+(count||0);
 }
 
-window.addEventListener('load', initializeApp);
+async function toggleLike(v){
+ if(!user)return alert('Like करने के लिए Login करें।');
+ if(v.legacy)return alert('पुराने वीडियो पर Like उपलब्ध नहीं है।');
+ try{
+  const {data,error}=await db.from('likes').select('id').eq('video_id',v.id).eq('user_id',user.id).maybeSingle();
+  if(error)throw error;
+  if(data){
+   const r=await db.from('likes').delete().eq('id',data.id);
+   if(r.error)throw r.error;
+  }else{
+   const r=await db.from('likes').insert({video_id:v.id,user_id:user.id});
+   if(r.error)throw r.error;
+  }
+  renderVideos();
+ }catch(e){alert('Like समस्या: '+e.message)}
+}
+
+async function addComment(v,input,container){
+ if(!user)return alert('Comment करने के लिए Login करें।');
+ if(v.legacy)return alert('पुराने वीडियो पर Comment उपलब्ध नहीं है।');
+ const content=input.value.trim();
+ if(!content)return alert('पहले Comment लिखें।');
+ try{
+  const {error}=await db.from('comments').insert({video_id:v.id,user_id:user.id,content});
+  if(error)throw error;
+  input.value='';await loadComments(v,container);
+ }catch(e){alert('Comment समस्या: '+e.message)}
+}
+
+async function loadComments(v,container){
+ container.replaceChildren();
+ if(v.legacy){container.textContent='पुराने वीडियो के Comments उपलब्ध नहीं हैं।';return}
+ const {data,error}=await db.from('comments').select('id,user_id,content').eq('video_id',v.id).order('created_at',{ascending:true}).limit(100);
+ if(error){container.textContent='Comments लोड नहीं हुए: '+error.message;return}
+ for(const c of data||[]){
+  const div=document.createElement('div');div.className='comment';
+  const text=document.createElement('span');
+  text.textContent=(c.user_id===user?.id?'आप: ':'यूज़र: ')+c.content;
+  div.appendChild(text);
+  if(user&&c.user_id===user.id){
+   const del=document.createElement('button');del.textContent='हटाएँ';del.style.marginLeft='8px';
+   del.onclick=async()=>{
+    const r=await db.from('comments').delete().eq('id',c.id);
+    if(r.error)alert(r.error.message);else loadComments(v,container);
+   };
+   div.appendChild(del);
+  }
+  container.appendChild(div);
+ }
+}
+
+async function deleteVideo(v){
+ if(!user)return alert('पहले Login करें।');
+ if(v.legacy||v.user_id!==user.id)return alert('आप केवल अपने नए वीडियो Delete कर सकते हैं।');
+ if(!confirm('क्या आप अपना वीडियो Delete करना चाहते हैं?'))return;
+ try{
+  const paths=[v.storage_path];
+  if(v.thumbnail_path)paths.push(v.thumbnail_path);
+  const {error}=await db.storage.from(BUCKET).remove(paths);
+  if(error)throw error;
+  const {error:rowError}=await db.from('videos').delete().eq('id',v.id).eq('user_id',user.id);
+  if(rowError)throw rowError;
+  await loadVideos();
+ }catch(e){alert('Delete नहीं हुआ: '+e.message+'। Storage DELETE Policy जाँचें।')}
+}
+
+window.addEventListener('load',async()=>{
+ if(!window.supabase){status('Internet चालू करें और Refresh करें।');return}
+ db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+ const {data,error}=await db.auth.getSession();
+ if(error){status(error.message);return}
+ user=data.session?.user||null;
+ updateAuth();
+ db.auth.onAuthStateChange((_event,session)=>{
+  user=session?.user||null;
+  setTimeout(()=>{updateAuth();loadVideos()},0);
+ });
+ await loadVideos();
+});
 </script>
 </body>
 </html>
